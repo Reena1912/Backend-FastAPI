@@ -74,7 +74,7 @@ class Order(BaseModel):
 
 ---
 
-## 4. Query & Path Parameter Validations
+## 4. Query & Path Parameter Validation
 
 FastAPI also lets you apply validation rules directly to query and path parameters using `Query` and `Path` classes from `fastapi`.
 
