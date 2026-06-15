@@ -133,19 +133,18 @@ Understanding `async` and `await` is essential for writing high-performance Fast
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    actor User1 as User A
-    actor User2 as User B
-    participant Loop as Event Loop
-    participant DB as Database
+    participant UserA
+    participant UserB
+    participant EventLoop
+    participant Database
 
-    User1->>Loop: Request Item Info
-    Loop->>DB: Start Database Query (Async)
-    Note over Loop: Event Loop yields control
-    User2->>Loop: Request Home Page
-    Loop-->>User2: Return Home Page (Instant)
-    DB-->>Loop: Database Query Completes
-    Loop-->>User1: Return Item Info
+    UserA->>EventLoop: Request Item Info
+    EventLoop->>Database: Start Query
+    Note over EventLoop: Yield Control
+    UserB->>EventLoop: Request Home Page
+    EventLoop-->>UserB: Return Home Page
+    Database-->>EventLoop: Query Complete
+    EventLoop-->>UserA: Return Item Info
 ```
 
 *   **Concurrency vs. Parallelism**:
@@ -205,115 +204,5 @@ This curriculum is structured to build your knowledge incrementally. Do not skip
 
 ---
 
-## 3. Portfolio Project Spec: **Chronos**
-
-This is the system design of your signature project. Build this step-by-step as you progress through the learning syllabus.
-
-### 3.1 System Architecture
-
-```
-                 +-------------------+
-                 |  Client / Browser |
-                 +---------+---------+
-                           |
-            HTTP/JSON      |      WebSockets
-      (Schedule & Manage)  |   (Real-time Logs)
-                           v
-                 +---------+---------+
-                 |   FastAPI Server  |
-                 +---+---------+-----+
-                     |         |
-      Read/Write     |         | Read/Write Cache
-      Data Schema    |         | & Enqueue Tasks
-                     v         v
-         +-----------+-+     +-+-----------+
-         | PostgreSQL  |     | Redis Cache |
-         +-------------+     +------+------+
-                                    |
-                                    | Fetch Scheduled Jobs
-                                    v
-                             +------+------+
-                             | arq Worker  | <---+ (Runs in background)
-                             +------+------+
-                                    |
-                                    | Sends HTTP Request
-                                    v
-                             +------+------+
-                             | Destination | (The target webhook URL)
-                             +-------------+
-```
-
-### 3.2 Database Schema (SQLModel Design)
-
-You will need three tables: `User`, `WebhookTask`, and `ExecutionLog`.
-
-```mermaid
-erDiagram
-    User ||--o{ WebhookTask : owns
-    WebhookTask ||--o{ ExecutionLog : generates
-
-    User {
-        int id PK
-        string email UNIQUE
-        string hashed_password
-        string api_key UNIQUE
-    }
-
-    WebhookTask {
-        int id PK
-        int user_id FK
-        string name
-        string destination_url
-        string http_method
-        string payload_json
-        string cron_expression "e.g., */5 * * * * or NULL"
-        datetime run_at "For one-shot tasks"
-        string status "active / paused / completed"
-    }
-
-    ExecutionLog {
-        int id PK
-        int task_id FK
-        datetime executed_at
-        int response_status_code
-        string response_body
-        string status "success / retry / failed"
-        int retry_count
-    }
-```
-
-### 3.3 Core Code Implementation Paths
-
-#### 1. Task Scheduling Logic
-When a client schedules a webhook task to run once or repeatedly, the task is saved to PostgreSQL, and its job ID is added to **arq** (a Redis-based async task queue for Python).
-
-#### 2. The Worker Loop
-An independent python script (`worker.py`) runs in the background. It reads jobs scheduled in Redis. At the trigger time, it executes:
-```python
-import httpx
-from datetime import datetime
-
-async def execute_webhook(task_id: int, url: str, method: str, payload: dict, retry_count: int = 0):
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.request(method, url, json=payload, timeout=10.0)
-            
-            # Log successful execution in database
-            await save_log(task_id, response.status_code, response.text, "success")
-            
-        except httpx.RequestError as exc:
-            # Handle Network failure
-            if retry_count < 3:
-                # Re-schedule task in Redis with exponential backoff delay
-                backoff_delay = (2 ** retry_count) * 60  # 1m, 2m, 4m
-                await reschedule_task(task_id, backoff_delay, retry_count + 1)
-                await save_log(task_id, 0, str(exc), "retry")
-            else:
-                await save_log(task_id, 0, str(exc), "failed")
-```
-
-#### 3. Real-time Event Streaming
-When the worker writes an `ExecutionLog` entry to the database:
-1. It publishes a JSON payload to a Redis Pub/Sub channel (e.g., `logs:user_1`).
-2. FastAPI has an active WebSocket endpoint `/ws/logs` listening to the user's Channel.
+ebSocket endpoint `/ws/logs` listening to the user's Channel.
 3. FastAPI receives the log event from Redis and instantly sends it to the frontend browser interface.
