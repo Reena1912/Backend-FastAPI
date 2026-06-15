@@ -59,7 +59,7 @@ Implement a `POST` endpoint at `/analyze` that takes a piece of text, performs s
 6. Save the file.
 7. Run the server using:
    ```bash
-   uvicorn main:app --reload
+    uvicorn Challenges.TextAnalyze.Text_analyze_api:app --reload --reload-dir Challenges
    ```
 
 8. Go to `http://127.0.0.1:8000/docs` in your browser, click **Try it out** on your `/analyze` endpoint, enter test text, and see if it works!
